@@ -29,45 +29,46 @@ from abc import ABCMeta, abstractmethod
 
 #socketepoint stuff
 import socket
+import collections
 
 class Endpoint:
     __metaclass__ = ABCMeta
 
     @abstractmethod
-    def set_timeout(self, millis):
+    def put_cmd(self, cmd):
         pass
 
     @abstractmethod
-    def write_str(self, s):
-        pass
-
-    @abstractmethod
-    def read_str(self):
+    def read_response(self):
         """Blocks until timeout reached, returns None if nothing was read."""
         pass
 
 class SocketEndpoint:
+
+    BUF_SIZE = 4096
     
     def __init__(self, address, port):
         self.sock = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((address, port))
+        self.sock.settimeout(0.1)
+        self.buff = collections.deque(maxlen = self.BUF_SIZE)
 
-    def set_timeout(self, millis):
-        pass
-
-    def write_str(self, s):
-        sent = self.write_line(s)
+    def put_cmd(self, cmd):
+        sent = self.write_line(cmd)
         if sent == 0:
             #TODO: raise an error
             pass
+        echo = self.read_line()
+        if not echo.strip().endswith(cmd):
+            raise RuntimeError("expected terminal to echo command.")
         return sent
 
-    def read_str(self):
+    def read_response(self):
         return self.read_line()
 
     def write_line(self, msg):
-        msg_with_line = msg + "\n"
+        msg_with_line = msg + "\r\n"
         totalsent = 0
         while totalsent < len(msg_with_line):
             sent = self.sock.send(msg_with_line[totalsent:])
@@ -76,12 +77,37 @@ class SocketEndpoint:
             totalsent += sent
         return totalsent
 
+    def buff_to_line(self):
+        s = ""
+        while True:
+            try:
+                c = self.buff.popleft()
+                if c == "\n":
+                    break
+                s += c
+            except IndexError:
+                break
+        return s
+
     def read_line(self):
         """reads a single line, or raises an error if a message was
         not received within a timeout, i.e. if the user expected a response
         from a non-response command."""
-        msg = self.sock.recv(100)
-        return msg
+        if self.buff.count("\n") != 0:
+            return self.buff_to_line()
+        while True:
+            timedout = False
+            msg = ""
+            try:
+                msg = self.sock.recv(1024)
+            except socket.timeout:
+                timedout = True
+            for c in msg:
+                self.buff.append(c)
+            if self.buff.count("\n") != 0:
+                return self.buff_to_line()
+            if timedout:
+                return None
 
 Endpoint.register(SocketEndpoint)
 
@@ -100,9 +126,13 @@ class Instrument:
         self.endp = SocketEndpoint(address, port)
         visa_log("Connection to device successfull")
 
-        self.endp.set_timeout(1000)
-        self.endp.write_str("*IDN?")
-        idn = self.endp.read_str()
+        line = self.endp.read_line()
+        while line != None:
+            print(line)
+            line = self.endp.read_line()
+
+        self.put_cmd("*IDN?")
+        idn = self.read_response()
         if idn != None:
             visa_log(idn)
         else:
@@ -110,34 +140,24 @@ class Instrument:
 
         # enable device errors to be reported
         # TODO: make this settable by passing in a device-config
-        self.endp.write_str("*ESE=" + 
-            str(VISA_USER_REQUEST |
-            VISA_COMMAND_ERROR |
-            VISA_EXEC_ERROR))
+        error_settings = "*ESE " + str(VISA_USER_REQUEST | VISA_COMMAND_ERROR | VISA_EXEC_ERROR)
+        self.put_cmd(error_settings)
 
     def put_cmd(self, cmd):
         """Send the command to the device, do not attempt to read a result."""
-        self.endp.write_str("*CLS")
-        self.endp.write_str(cmd)
-        self.check_errors()
+        self.endp.put_cmd("*CLS")
+        self.endp.put_cmd(cmd)
 
-    def query_cmd(self, cmd):
-        """Send the command to the device and then read and parse the result."""
-        put_cmd(cmd)
-        result = self.endp.read_str()
-        if result != None:
-            pass
-            #TODO: parse it, throw an error if nothing was returned
-        return result
+    def read_response(self):
+        return self.endp.read_response()
 
     def check_errors(self):
-        self.endp.write_str("*ESR?")
-        result = self.endp.read_str()
+        self.endp.put_cmd("*ESR?")
+        result = self.endp.read_response()
         if result != None:
             status = int(result)
             #TODO: parse the errors, throw errors
         #throw an error if nothing returned
 
 siggen = Instrument("132.181.52.71", 5024)
-siggen.put_cmd("NOTCOMMAND")
 
