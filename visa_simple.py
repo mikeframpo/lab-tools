@@ -28,40 +28,83 @@ import telnetlib
 from abc import ABCMeta, abstractmethod
 
 #socketepoint stuff
-import telnetlib
+import socket
 
 class Endpoint:
     __metaclass__ = ABCMeta
 
     @abstractmethod
-    def put_cmd(self, s):
+    def put_cmd(self, cmd):
         pass
 
     @abstractmethod
-    def read_available(self):
+    def read_response(self):
+        """Blocks until timeout reached, returns None if nothing was read."""
         pass
 
-class TelnetEndpoint:
+class SocketEndpoint:
     
-    def __init__(self, address, port, timeout):
-        self.telnet = telnetlib.Telnet(address, port, timeout)
+    def __init__(self, address, port):
+        self.sock = socket.socket(
+            socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((address, port))
 
     def put_cmd(self, cmd):
-        self.telnet.write(cmd + "\n")
-        response_raw = self.telnet.read_some()
-        response = ""
-        if len(response_raw) == 0:
-            raise RuntimeError("command returned non-zero response")
-        elif not response_raw.startswith(cmd):
-            raise RuntimeError("expected device to echo command")
-        response = response_raw.lstrip(cmd)
-        return response
-    
-    def read_available(self):
-        return self.telnet.read_some()
+        sent = self.write_line(cmd)
+        if sent == 0:
+            #TODO: raise an error
+            pass
+        echo = self.read_line()
+        if not echo.strip().endswith(cmd):
+            raise RuntimeError("expected terminal to echo command.")
+        return sent
 
+    def read_response(self):
+        return self.read_line()
 
-Endpoint.register(TelnetEndpoint)
+    def write_line(self, msg):
+        msg_with_line = msg + "\r\n"
+        totalsent = 0
+        while totalsent < len(msg_with_line):
+            sent = self.sock.send(msg_with_line[totalsent:])
+            if sent == 0:
+                raise RuntimeError("socket connection broken")
+            totalsent += sent
+        return totalsent
+
+    def buff_to_line(self):
+        s = ""
+        while True:
+            try:
+                c = self.buff.popleft()
+                if c == "\n":
+                    break
+                s += c
+            except IndexError:
+                break
+        return s
+
+    def read_line(self):
+        """reads a single line, or raises an error if a message was
+        not received within a timeout, i.e. if the user expected a response
+        from a non-response command."""
+        if self.buff.count("\n") != 0:
+            return self.buff_to_line()
+        while True:
+            timedout = False
+            msg = ""
+            try:
+                msg = self.sock.recv(1024)
+            except socket.timeout:
+                timedout = True
+            for c in msg:
+                self.buff.append(c)
+            if self.buff.count("\n") != 0:
+                return self.buff_to_line()
+            if timedout:
+                return None
+
+Endpoint.register(SocketEndpoint)
 
 def visa_log(msg):
     print("visa_simple: " + msg)
@@ -75,10 +118,16 @@ class Instrument:
     #TODO: change the method definition to parse a SCPI string
     def __init__(self, address, port):
 
-        self.endp = TelnetEndpoint(address, port, 2)
+        self.endp = SocketEndpoint(address, port)
         visa_log("Connection to device successfull")
 
-        idn = self.put_cmd("*IDN?")
+        line = self.endp.read_line()
+        while line != None:
+            print(line)
+            line = self.endp.read_line()
+
+        self.put_cmd("*IDN?")
+        idn = self.read_response()
         if idn != None:
             visa_log(idn)
         else:
@@ -86,18 +135,16 @@ class Instrument:
 
         # enable device errors to be reported
         # TODO: make this settable by passing in a device-config
-        self.put_cmd("*ESE=" + 
-            str(VISA_USER_REQUEST |
-            VISA_COMMAND_ERROR |
-            VISA_EXEC_ERROR))
+        error_settings = "*ESE " + str(VISA_USER_REQUEST | VISA_COMMAND_ERROR | VISA_EXEC_ERROR)
+        self.put_cmd(error_settings)
 
     def put_cmd(self, cmd):
         """Send the command to the device, do not attempt to read a result."""
         self.endp.put_cmd("*CLS")
-        response = self.endp.put_cmd(cmd)
-        self.check_errors()
-        #TODO: parse the reponse
-        return response
+        self.endp.put_cmd(cmd)
+
+    def read_response(self):
+        return self.endp.read_response()
 
     def check_errors(self):
         self.endp.write_str("*ESR?")
