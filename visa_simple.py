@@ -21,14 +21,12 @@
 # class SCPIError:
 #   
 
-#telnet interface stuff
-import telnetlib
-
 #endpoint base class stuff
 from abc import ABCMeta, abstractmethod
 
 #socketepoint stuff
 import socket
+import collections
 
 class Endpoint:
     __metaclass__ = ABCMeta
@@ -43,11 +41,15 @@ class Endpoint:
         pass
 
 class SocketEndpoint:
+
+    BUF_SIZE = 4096
     
     def __init__(self, address, port):
         self.sock = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((address, port))
+        self.sock.settimeout(0.1)
+        self.buff = collections.deque(maxlen = self.BUF_SIZE)
 
     def put_cmd(self, cmd):
         sent = self.write_line(cmd)
@@ -147,13 +149,12 @@ class Instrument:
         return self.endp.read_response()
 
     def check_errors(self):
-        self.endp.write_str("*ESR?")
-        result = self.endp.read_str()
+        self.endp.put_cmd("*ESR?")
+        result = self.endp.read_response()
         if result != None:
             status = int(result)
             #TODO: parse the errors, throw errors
         #throw an error if nothing returned
 
 siggen = Instrument("132.181.52.71", 5024)
-siggen.put_cmd("NOTCOMMAND")
 
