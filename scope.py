@@ -3,8 +3,8 @@ import visa_simple
 
 class Oscilloscope(visa_simple.Instrument):
     
-    def __init__(self, address, port):
-        super(Oscilloscope, self).__init__(address, port)
+    def __init__(self, config):
+        super(Oscilloscope, self).__init__(config)
 
     def enable_channel(self, channel):
         cmd = ':CHAN{0}:DISP ON'.format(channel)
@@ -21,16 +21,26 @@ class Oscilloscope(visa_simple.Instrument):
         complete waveforms on screen.'''
         timebase = (1/frequency) * 2
         cmd = ':TIM:RANG {0}'.format(timebase)
-        pass
-        
+        self.put_cmd(cmd)
+        self.check_errors()
+
     def autoscale_chan(self, channel):
-        #TODO
-        pass
+        cmd = ':AUT CHAN{0}'.format(channel)
+        self.put_cmd(cmd)
+        self.check_errors()
 
     def measure_vpp(self, channel):
-        #TODO
-        pass
+        cmd = ':MEAS:VPP? CHAN{0}'.format(channel)
+        self.put_cmd(cmd)
+        response = self.read_response()
+        result = float(response)
+        return result
 
     def measure_phase(self, ch_reference, ch_phase):
-        #TODO
-        pass
+        '''returns the phase between the specified channels in degrees'''
+        cmd = ':MEAS:PHAS? CHAN{0}, CHAN{1}'.format(ch_reference, ch_phase)
+        self.put_cmd(cmd)
+        response = self.read_response()
+        result = float(response)
+        return result
+

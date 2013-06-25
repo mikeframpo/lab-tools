@@ -14,78 +14,104 @@ class Endpoint:
         pass
 
     @abstractmethod
-    def read_response(self):
-        '''Blocks until timeout reached, returns None if nothing was read.'''
+    def read_response(self, timeout):
+        '''Blocks until timeout reached, throws a ResponseTimeout if timeout
+        is reached. If no timeout was passed then an endpoint-dependent
+        default will be used'''
         pass
+
+class ResponseTimeout(Exception):
+    pass
 
 class SocketEndpoint:
 
-    BUF_SIZE = 4096
+    SOCKET_TIMEOUT = 10.0
+    socketlogging = False
     
-    def __init__(self, address, port, timeout=1.0):
+    def __init__(self, config):
+
         self.sock = socket.socket(
             socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((address, port))
-        self.sock.settimeout(timeout)
-        self.buff = collections.deque(maxlen = self.BUF_SIZE)
+        self.sock.connect((config['address'], config['port']))
+        self.buff = ''
+
+        if config.has_key('promptstr'):
+            self.promptstr = config['promptstr']
+        else:
+            self.promptstr = '>'
+        if config.has_key('lineending'):
+            self.lineending = config['lineending']
+        else:
+            self.lineending = '\r\n'
+
+    def socket_log_sent(self, msg):
+        if self.socketlogging:
+            print('sock sent: ' + msg)
+
+    def socket_log_recv(self, msg):
+        if self.socketlogging:
+            print('sock recv:' + msg)
 
     def put_cmd(self, cmd):
+        # Expects devices to have to exhibit the following behavior:
+        # CMD\r\n -> device
+        # device -> CMD\r\n (echoed)
+        # device -> prompt  (signifies ready for next command)
         sent = self._write_line(cmd)
         if sent == 0:
-            #TODO: raise an error
-            pass
-        echo = self._read_line()
+            raise RuntimeError('socket failed to send command.')
+        echo = self._read_line(self.SOCKET_TIMEOUT)
         if not echo.strip().endswith(cmd):
             raise RuntimeError('expected terminal to echo command.')
         return sent
 
-    def read_response(self):
-        return self._read_line()
+    def read_response(self, timeout=None):
+        if timeout == None:
+            timeout = self.SOCKET_TIMEOUT
+        response = self._read_line(timeout)
+        try:
+            self._wait_for_prompt(self.SOCKET_TIMEOUT)
+        except ResponseTimeout:
+            raise RuntimeError('expected device to reply with telnet prompt')
+        return response
 
     def _write_line(self, msg):
-        msg_with_line = msg + '\r\n'
+        msg_with_line = msg + self.lineending
         totalsent = 0
         while totalsent < len(msg_with_line):
             sent = self.sock.send(msg_with_line[totalsent:])
+            self.socket_log_sent(msg_with_line[totalsent:])
             if sent == 0:
                 raise RuntimeError('socket connection broken')
             totalsent += sent
         return totalsent
 
-    def _buff_to_line(self):
-        s = ''
-        while True:
-            try:
-                c = self.buff.popleft()
-                if c == '\n':
-                    break
-                s += c
-            except IndexError:
-                break
-        return s
+    def _wait_for_prompt(self, timeout):
+        self._read_message(self.promptstr, timeout)
 
-    def _read_line(self):
+    def _read_line(self, timeout):
+        return self._read_message(self.lineending, timeout)
+
+    def _pop_buffer(self, delimiter):
+        parts = self.buff.partition(delimiter)
+        self.buff = parts[2]
+        return parts[0]
+
+    def _read_message(self, delimiter, timeout):
         '''reads a single line, or raises an error if a message was
         not received within a timeout, i.e. if the user expected a response
         from a non-response command.'''
 
-        #TODO: block for half a second or so waiting for the first byte, but
-        #       then only block for a few milliseconds waiting for the rest.
-        if self.buff.count('\n') != 0:
-            return self._buff_to_line()
+        self.sock.settimeout(timeout)
         while True:
-            timedout = False
-            msg = ''
+            if self.buff.count(delimiter) > 0:
+                return self._pop_buffer(delimiter)
             try:
                 msg = self.sock.recv(1024)
+                self.socket_log_recv(msg)
+                self.buff += msg
             except socket.timeout:
-                timedout = True
-            for c in msg:
-                self.buff.append(c)
-            if self.buff.count('\n') != 0:
-                return self._buff_to_line()
-            if timedout:
-                return None
+                raise ResponseTimeout()
 
 Endpoint.register(SocketEndpoint)
 
@@ -98,26 +124,24 @@ VISA_EXEC_ERROR = (1 << 4)
 
 class Instrument(object):
 
-    #TODO: change the method definition to parse a SCPI string
-    def __init__(self, address, port):
+    def __init__(self, config):
 
-        self.endp = SocketEndpoint(address, port)
+        if config['type'] == 'socket':
+            self.endp = SocketEndpoint(config)
+        else:
+            raise RuntimeError('unsupported instrument type')
+
         visa_log('Connection to device successfull')
 
-        line = self.endp.read_response()
-        while line != None:
-            print(line)
-            line = self.endp.read_response()
+        while True:
+            try:
+                visa_log(self.endp.read_response(1.0))
+            except ResponseTimeout:
+                break
 
         # Reset the device to a known state.
+        # That state will be device dependent
         self.put_cmd('*RST')
-
-        self.put_cmd('*IDN?')
-        idn = self.read_response()
-        if idn != None:
-            visa_log(idn)
-        else:
-            visa_log('Failed to read device IDN')
 
         # enable device errors to be reported
         # TODO: make this settable by passing in a device-config
@@ -138,9 +162,8 @@ class Instrument(object):
     def check_errors(self):
         self.endp.put_cmd('*ESR?')
         result = self.endp.read_response()
-        if result != None:
-            status = int(result)
-            if status != 0:
-                raise RuntimeError("error detected in visa command")
-            #TODO: parse the errors, throw errors
+        status = int(result)
+        if status != 0:
+            raise RuntimeError("error detected in visa command")
+        #TODO: parse the errors, throw errors
 
