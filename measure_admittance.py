@@ -1,10 +1,14 @@
-import visa_simple
-import scope
 import time
 import numpy
 import cmath
+import sys
 
-def measure_frequencies(scope, siggen, frequencies, resistor):
+import visa_simple
+import scope
+import utils
+import plotting
+
+def do_measure_admittance(scope, siggen, frequencies, resistor):
 
     # Set signal generator to drive a high-Z load with 1Vpp sine wave
 
@@ -50,28 +54,35 @@ def measure_frequencies(scope, siggen, frequencies, resistor):
                     .format(time.time() - starttime))
     return admittance
 
-#test code
-max_frequency = 200e3
-num_points = 10
-resistor = 4.7e3
+def measure_admittance(filename_prefix):
 
-frequencies = numpy.array([(i + 1) * max_frequency/num_points
-                            for i in range(num_points)])
+    max_frequency = 200e3
+    num_points = 400
+    resistor = 4.7e3
 
-scope = scope.Oscilloscope({
-                            'type': 'socket',
-                            'address': '132.181.52.74',
-                            'port': 5024,
-                            'promptstr': '>>'})
+    frequencies = numpy.array([(i + 1) * max_frequency/num_points
+                                for i in range(num_points)])
 
-siggen = visa_simple.Instrument({
-                            'type': 'socket',
-                            'address': '132.181.52.71',
-                            'port': 5024,
-                            'promptstr': 'sonarsg1>'})
+    oscscope = scope.Oscilloscope({
+                                'type': 'socket',
+                                'address': '132.181.52.74',
+                                'port': 5024,
+                                'promptstr': '>>'})
 
-admittance = measure_frequencies(scope, siggen, frequencies, resistor)
-y_file = file('y_data.npz', 'w')
-numpy.savez(y_file, frequencies, admittance)
-y_file.close()
+    siggen = visa_simple.Instrument({
+                                'type': 'socket',
+                                'address': '132.181.52.71',
+                                'port': 5024,
+                                'promptstr': 'sonarsg1>'})
+
+    admittance = do_measure_admittance(oscscope, siggen, frequencies, resistor)
+    utils.save_arrays(filename_prefix, [frequencies, admittance])
+    plot_admittance_magnitude(filename_prefix, frequencies, admittance)
+
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        print('Usage: measure_admittance.py filename_prefix')
+        sys.exit(-1)
+    filename_prefix = sys.argv[1]
+    measure_admittance(filename_prefix)
 
