@@ -1,8 +1,10 @@
 import visa_simple
 import scope
 import time
+import numpy
+import cmath
 
-def measure_frequencies(scope, siggen, frequencies):
+def measure_frequencies(scope, siggen, frequencies, resistor):
 
     # Set signal generator to drive a high-Z load with 1Vpp sine wave
 
@@ -11,14 +13,11 @@ def measure_frequencies(scope, siggen, frequencies):
     siggen.put_cmd('FUNC SIN')
     siggen.put_cmd('OUTP ON')
 
-    #TODO: init trigger settings
     # initially scale the channels to 4volts/screen
-    scope.enable_channel(1)
-    scope.enable_channel(2)
     scope.scale_channel(1, 4)
     scope.scale_channel(2, 4)
 
-    voltages = []
+    admittance = numpy.zeros(len(frequencies), dtype=complex)
 
     for measurement in range(len(frequencies)):
 
@@ -30,6 +29,8 @@ def measure_frequencies(scope, siggen, frequencies):
 
         scope.autoscale_chan(1)
         scope.autoscale_chan(2)
+        scope.enable_channel(1)
+        scope.enable_channel(2)
 
         # timebase adjust is done after autoscale because the autoscale messes
         # with the timebase.
@@ -40,13 +41,22 @@ def measure_frequencies(scope, siggen, frequencies):
 
         phase = scope.measure_phase(1, 2)
 
-        #TODO: format measurements for plotting.
+        v_ch2_complex = cmath.rect(v_ch1, (cmath.pi/180) * phase)
+
+        y = (v_ch1 - v_ch2_complex) / (v_ch2_complex * resistor)
+        admittance[measurement] = y
 
         print('measurement took: {0} seconds'
                     .format(time.time() - starttime))
+    return admittance
 
 #test code
-frequencies = [1e3, 10e3, 100e3]
+max_frequency = 200e3
+num_points = 10
+resistor = 4.7e3
+
+frequencies = numpy.array([(i + 1) * max_frequency/num_points
+                            for i in range(num_points)])
 
 scope = scope.Oscilloscope({
                             'type': 'socket',
@@ -60,5 +70,8 @@ siggen = visa_simple.Instrument({
                             'port': 5024,
                             'promptstr': 'sonarsg1>'})
 
-measure_frequencies(scope, siggen, frequencies)
+admittance = measure_frequencies(scope, siggen, frequencies, resistor)
+y_file = file('y_data.npz', 'w')
+numpy.savez(y_file, frequencies, admittance)
+y_file.close()
 
