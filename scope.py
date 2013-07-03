@@ -38,7 +38,7 @@ class Oscilloscope(visa_simple.Instrument):
 
     def measure_phase(self, ch_reference, ch_phase):
         '''returns the phase between the specified channels in degrees'''
-        cmd = ':MEAS:PHAS? CHAN{0}, CHAN{1}'.format(ch_reference, ch_phase)
+        cmd = ':MEAS:PHAS? CHAN{0}, CHAN{1}'.format(ch_phase, ch_reference)
         self.put_cmd(cmd)
         response = self.read_response()
         result = float(response)

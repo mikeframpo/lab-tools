@@ -8,7 +8,7 @@ import scope
 import utils
 import plotting
 
-def do_measure_admittance(scope, siggen, frequencies, resistor):
+def do_measure_admittance(scope, siggen, frequencies, averages, resistor):
 
     # Set signal generator to drive a high-Z load with 1Vpp sine wave
 
@@ -31,23 +31,41 @@ def do_measure_admittance(scope, siggen, frequencies, resistor):
                                                     len(frequencies)))
         siggen.put_cmd('FREQ {0} HZ'.format(freq))
 
-        scope.autoscale_chan(1)
+        # autoscale reference channel last because this is the most reliable
+        # channel to trigger from
         scope.autoscale_chan(2)
+        scope.autoscale_chan(1)
+
         scope.enable_channel(1)
         scope.enable_channel(2)
+        scope.put_cmd(':ACQ:TYPE AVER')
 
         # timebase adjust is done after autoscale because the autoscale messes
         # with the timebase.
         scope.adj_timebase(freq)
 
-        v_ch1 = scope.measure_vpp(1)
-        v_ch2 = scope.measure_vpp(2)
+        v_ch1_complex = complex(0, 0)
+        v_ch2_complex = complex(0, 0)
 
-        phase = scope.measure_phase(1, 2)
+        for avg in range(averages):
 
-        v_ch2_complex = cmath.rect(v_ch1, (cmath.pi/180) * phase)
+            v_ch1_mag = scope.measure_vpp(1)
+            v_ch2_mag = scope.measure_vpp(2)
+            v_ch2_phase = scope.measure_phase(1, 2)
 
-        y = (v_ch1 - v_ch2_complex) / (v_ch2_complex * resistor)
+            v_ch1_complex += utils.mag_phase_to_complex(v_ch1_mag, 0)
+            v_ch2_complex += utils.mag_phase_to_complex(
+                                                    v_ch2_mag, v_ch2_phase)
+
+        v_ch1_complex /= averages
+        v_ch2_complex /= averages
+
+        # make sure that the circuit is correct
+        errorfudge = 0.1
+        assert (cmath.polar(v_ch1_complex)[0] + errorfudge) >= \
+                cmath.polar(v_ch2_complex)[0]
+
+        y = (v_ch1_complex - v_ch2_complex) / (v_ch2_complex * resistor)
         admittance[measurement] = y
 
         print('measurement took: {0} seconds'
@@ -57,8 +75,9 @@ def do_measure_admittance(scope, siggen, frequencies, resistor):
 def measure_admittance(filename_prefix):
 
     max_frequency = 200e3
-    num_points = 400
-    resistor = 4.7e3
+    num_points = 2000
+    averages = 1
+    resistor = 4.66e3
 
     frequencies = numpy.array([(i + 1) * max_frequency/num_points
                                 for i in range(num_points)])
@@ -75,9 +94,11 @@ def measure_admittance(filename_prefix):
                                 'port': 5024,
                                 'promptstr': 'sonarsg1>'})
 
-    admittance = do_measure_admittance(oscscope, siggen, frequencies, resistor)
-    utils.save_arrays(filename_prefix, [frequencies, admittance])
-    plot_admittance_magnitude(filename_prefix, frequencies, admittance)
+    admittance = do_measure_admittance(oscscope, siggen, frequencies,
+                                        averages, resistor)
+    utils.save_arrays(filename_prefix + '.npz', frequencies, admittance)
+    #plotting.plot_show_admittance_magnitude(frequencies, admittance)
+    plotting.plot_show_complex_admittance(frequencies, admittance)
 
 if __name__ == '__main__':
     if len(sys.argv) != 2:
