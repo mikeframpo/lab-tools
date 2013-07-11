@@ -72,15 +72,9 @@ def do_measure_admittance(scope, siggen, frequencies, averages, resistor):
                     .format(time.time() - starttime))
     return admittance
 
-def measure_admittance(filename_prefix):
+def measure_admittance(frequencies, filename, resistance):
 
-    max_frequency = 200e3
-    num_points = 2000
     averages = 1
-    resistor = 4.66e3
-
-    frequencies = numpy.array([(i + 1) * max_frequency/num_points
-                                for i in range(num_points)])
 
     oscscope = scope.Oscilloscope({
                                 'type': 'socket',
@@ -95,15 +89,68 @@ def measure_admittance(filename_prefix):
                                 'promptstr': 'sonarsg1>'})
 
     admittance = do_measure_admittance(oscscope, siggen, frequencies,
-                                        averages, resistor)
-    utils.save_arrays(filename_prefix + '.npz', frequencies, admittance)
-    #plotting.plot_show_admittance_magnitude(frequencies, admittance)
-    plotting.plot_show_complex_admittance(frequencies, admittance)
+                                        averages, resistance)
+    utils.save_arrays(filename, frequencies, admittance)
+
+def measure_admittance_linear(filename_prefix, start_freq, end_freq, num_pts,
+                                resistance):
+
+    frequencies = numpy.array([(i + 1) * end_freq/num_pts
+                                for i in range(num_pts)])
+    filename = '{0}_log_{1}_{2}_{3}.npz'.format(filename_prefix, start_freq,
+                                                end_freq, num_pts)
+    measure_admittance(frequencies, filename, resistance)
+
+
+def measure_admittance_log(filename_prefix, start_freq, decades, num_pts,
+                            resistance):
+
+    frequencies = numpy.logspace(1.0, decades + 1, num_pts)
+    frequencies = frequencies * start_freq / 10
+
+    filename = '{0}_log_{1}_{2}_{3}.npz'.format(filename_prefix, start_freq,
+                                                decades, num_pts)
+    measure_admittance(frequencies, filename, resistance)
+
+def print_usage():
+    print('''
+Usage: measure_admittance.py filename_prefix log|linear options
+    filename_prefix
+        a unique name to identify the measurement or device being tested.
+
+    log options
+        log requires the following parameters in this order:
+        start_freq decades num_pts resistor_val
+
+    linear options
+        linear requires the following parameters in this order:
+        start_freq end_freq num_pts resistor_val
+''')
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2:
-        print('Usage: measure_admittance.py filename_prefix')
+    if len(sys.argv) < 3:
+        print_usage()
         sys.exit(-1)
     filename_prefix = sys.argv[1]
-    measure_admittance(filename_prefix)
+    meas_type = sys.argv[2]
+    if meas_type == "log":
+        if len(sys.argv) != 7:
+            print_usage()
+            sys.exit(1)
+        start_freq = float(sys.argv[3])
+        decades = float(sys.argv[4])
+        num_pts = int(sys.argv[5])
+        resistance = float(sys.argv[6])
+        measure_admittance_log(filename_prefix, start_freq, decades, num_pts,
+                                resistance)
+    elif meas_type == "linear":
+        if len(sys.argv) != 7:
+            print_usage()
+            sys.exit(1)
+        start_freq = float(sys.argv[3])
+        end_freq = float(sys.argv[4])
+        num_pts = int(sys.argv[5])
+        resistance = float(sys.argv[6])
+        measure_admittance_linear(filename_prefix, start_freq, end_freq,
+                                    num_pts, resistance)
 

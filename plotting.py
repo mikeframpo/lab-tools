@@ -3,6 +3,7 @@ import cmath
 import matplotlib.pyplot as plt
 
 def plot_admittance_magnitude(frequencies, complex_admittance):
+    plt.clf()
     y_mag_ms = numpy.array([cmath.polar(y_val)[0] * 1000
                             for y_val in complex_admittance])
     freq_khz = numpy.array([f/1000 for f in frequencies])
@@ -16,13 +17,27 @@ def plot_show_admittance_magnitude(frequencies, complex_admittance):
 
 def plot_complex_admittance(frequencies, complex_admittance):
 
-    plt.plot(frequencies, complex_admittance.real, 'b',
-            frequencies, complex_admittance.imag, 'r')
-    plt.legend('Real', 'Imaginary', loc='upper left')
+    plt.clf()
+    plt.plot(frequencies, complex_admittance.real, 'b', label='real')
+    plt.plot(frequencies, complex_admittance.imag, 'r', label='imag')
+    plt.legend(loc='upper left')
     plt.ylabel('Admittance (siemens)')
-    plt.ylabel('Frequency (Hz)')
+    plt.xlabel('Frequency (Hz)')
 
 def plot_show_complex_admittance(frequencies, complex_admittance):
     plot_complex_admittance(frequencies, complex_admittance)
     plt.show()
 
+def plot_complex_admittance_log(frequencies, complex_admittance):
+
+    plt.clf()
+    plt.loglog(frequencies, complex_admittance.real, 'b', label='real')
+    plt.loglog(frequencies, complex_admittance.imag, 'r', label='imag')
+    plt.legend(loc='upper left')
+    plt.ylabel('Admittance (siemens)')
+    plt.xlabel('Frequency (Hz)')
+
+def plot_show_complex_admittance_log(frequencies, complex_admittance):
+
+    plot_complex_admittance_log(frequencies, complex_admittance)
+    plt.show()
