@@ -95,8 +95,7 @@ def measure_admittance(frequencies, filename, resistance):
 def measure_admittance_linear(filename_prefix, start_freq, end_freq, num_pts,
                                 resistance):
 
-    frequencies = numpy.array([(i + 1) * end_freq/num_pts
-                                for i in range(num_pts)])
+    frequencies = numpy.linspace(start_freq, end_freq, num_pts)
     filename = '{0}_log_{1}_{2}_{3}.npz'.format(filename_prefix, start_freq,
                                                 end_freq, num_pts)
     measure_admittance(frequencies, filename, resistance)
@@ -153,4 +152,7 @@ if __name__ == '__main__':
         resistance = float(sys.argv[6])
         measure_admittance_linear(filename_prefix, start_freq, end_freq,
                                     num_pts, resistance)
+    else:
+        print_usage()
+        sys.exit(1)
 
