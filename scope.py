@@ -1,5 +1,6 @@
 
 import visa_simple
+import numpy as np
 
 class Oscilloscope(visa_simple.Instrument):
     
@@ -43,4 +44,41 @@ class Oscilloscope(visa_simple.Instrument):
         response = self.read_response()
         result = float(response)
         return result
+
+    def _set_num_capture_samples(self, num_samples):
+        self.put_cmd(':WAV:POIN {0}'.format(num_samples))
+
+    def _get_sampling_period(self, channel):
+        self.put_cmd(':WAV:XINC? {0}'.format(channel))
+        response = self.read_response()
+        period = float(response)
+        return period
+
+    ACQ_MODE_RUN = 0
+    ACQ_MODE_SINGLE = 1
+
+    def set_acq_mode(self, mode):
+        if mode == ACQ_MODE_RUN:
+            self.put_cmd(':RUN')
+        else if mode == ACQ_MODE_SINGLE:
+            self.put_cmd(':SINGLE')
+
+    def fetch_waveform(self, channel, num_samples):
+        self.put_cmd(':WAV:FORM ASCII')
+        self.put_cmd(':WAV:POIN:MODE RAW')
+        self.put_cmd(':WAV:SOUR {0}'.format(channel))
+
+        self._set_num_capture_samples(num_samples)
+        period = _get_sampling_period(channel)
+        t = np.array([i * period for i in range(num_samples)])
+
+        #TODO: need to determine whether this is necessary?
+        self.put_cmd(':WAV:XOR? {0}'.format(channel))
+        print('capture origin: ' + self.read_response())
+
+        self.put_cmd('WAV:DATA? {0}'.format(channel))
+        response = self.read_response()
+
+        v = np.array([float(i) for i in response.split(',')])
+        return (t, v)
 
