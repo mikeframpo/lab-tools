@@ -41,3 +41,13 @@ def plot_show_complex_admittance_log(frequencies, complex_admittance):
 
     plot_complex_admittance_log(frequencies, complex_admittance)
     plt.show()
+
+def plot_combined_transducer_output_db(frequencies, complex_gain):
+
+    gain_mag_db = numpy.array([20 * cmath.log10(cmath.polar(gain_val)[0])
+        for gain_val in complex_gain])
+    plt.clf()
+    plt.semilogx(frequencies, gain_mag_db)
+    plt.ylabel('Combined transducer gain (dB)')
+    plt.xlabel('Frequency (Hz)')
+
